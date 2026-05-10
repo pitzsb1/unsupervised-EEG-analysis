@@ -1,4 +1,4 @@
-# 프로젝트 중간보고 | NeuroStat
+# 프로젝트 중간보고 | EEG Unsupervised Analysis & Anomaly Detection
 
 ## 1. 프로젝트 개요
 
