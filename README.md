@@ -1,203 +1,411 @@
-# EEG Unsupervised Analysis & Anomaly Detection
+# NeuroStat: Unsupervised EEG Pattern Discovery and Early Warning Framework
 
-## Overview
+## 0. Background
 
-EEG (Electroencephalogram) signals are high-dimensional time-series data with complex and continuous patterns.
-This project explores **unsupervised learning approaches** to:
+Electroencephalography (EEG) is a representative biosignal that records the brain's electrical activity and is widely used to analyze various neurological abnormalities, including **Seizures, GPD (Generalized Periodic Discharges), GRDA (Generalized Rhythmic Delta Activity), and LRDA (Lateralized Rhythmic Delta Activity).**
 
-* Discover latent structure in EEG data
-* Detect abnormal brain activity patterns
-* Build an interpretable and lightweight analysis pipeline
+Recently, deep learning–based EEG classification models have achieved remarkable performance. However, most existing approaches rely on **supervised learning**, requiring large amounts of labeled data. This dependency limits their ability to discover previously unseen EEG patterns or identify unknown abnormalities.
+
+In contrast, **unsupervised learning** enables the exploration of latent EEG structures and anomaly detection without requiring labeled data.
+
+In this project, raw EEG time-series signals were transformed into statistical features, followed by **Principal Component Analysis (PCA), K-Means Clustering, and Isolation Forest** to analyze latent EEG structures and detect anomalous patterns through a lightweight analysis framework.
 
 ---
+
+# 1. Project Overview
 
 ## Objectives
 
-1. **Latent Structure Discovery**
-   Identify hidden patterns and cluster structures in EEG signals.
-
-2. **Anomaly Detection**
-   Automatically detect abnormal EEG signals without labels.
-
-3. **Interpretability**
-   Analyze statistical characteristics of clusters and anomalies.
-
-4. **Lightweight System**
-   Build a CPU-efficient pipeline without deep learning.
+* Discover latent EEG structures
+* Detect anomalous EEG patterns
+* Provide interpretable EEG analysis
+* Build an EEG risk-based early warning framework
 
 ---
 
-## Dataset
+# 2. Dataset
 
-* Source: HMS Harmful Brain Activity Classification (Kaggle)
-* EEG shape: `(10000 timesteps × 20 channels)`
-* Total EEG files: ~17,300
-* Labels (for post-hoc analysis):
+## Dataset Information
 
-  * Seizure, GPD, LPD, GRDA, LRDA, Other
+* **Source:** HMS Harmful Brain Activity Classification
+* **Format:** EEG Parquet Files
+* **Sampling Rate:** 200 Hz
+* **Total EEG Files:** Approximately 17,300
 
-### Key Observations
+## EEG Channels
 
-* EEG channels: similar scale (std ~50)
-* EKG channel: extremely large scale (std ~3000)
-* Multiple segments per EEG ID
+```text
+Fp1, F3, C3, P3, F7, T3, T5, O1,
+Fz, Cz, Pz,
+Fp2, F4, C4, P4, F8, T4, T6, O2,
+EKG
+```
 
 ---
 
-## Feature Engineering
+# 3. Initial EEG Exploration & Feature Engineering
 
-Statistical features were extracted from each EEG channel:
+Instead of directly analyzing raw EEG time-series data, statistical features were extracted from each EEG recording.
 
-* Mean, Std
-* Min, Max, Range
-* Skewness, Kurtosis
+## Extracted Features
+
+For each channel:
+
+* Mean
+* Standard Deviation
+* Minimum
+* Maximum
+* Range
 * Absolute Mean
-* Flat Signal Flag
-
-> Initially included autocorrelation features, but removed due to noise sensitivity and computational cost.
-
----
-
-## Critical Issue: Artifact Detection
-
-### Initial Problem
-
-The anomaly detection model identified **sensor artifacts instead of meaningful EEG patterns**.
-
-Examples:
-
-* Sudden spikes (~30,000 amplitude)
-* Flat or corrupted signals
+* Skewness
+* Kurtosis
+* Flat Signal Indicator
 
 ---
 
-### Solution: Data Cleaning
+## Analysis Framework
 
-Artifact filtering applied:
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/97d65ac6-b552-4db5-b53f-2aced4099ef6" />
 
-* Extreme amplitude threshold
-* Abnormal global variance
-* High NaN ratio
+---
 
-Result:
+# 4. Initial EEG Structure Exploration
 
+## Principal Component Analysis (PCA)
+
+PCA was performed to visualize the high-dimensional EEG feature space.
+
+<img width="989" height="690" alt="image" src="https://github.com/user-attachments/assets/f8937456-88ad-4f3c-ba22-deea89ad9b71" />
+
+### Results
+
+```text
+PC1 = 34.4%
+PC2 = 10.6%
+PC3 = 10.5%
+
+Cumulative Explained Variance
+
+PC1 + PC2 = 45.0%
+PC1 + PC2 + PC3 = 55.5%
 ```
-17300 → 8739 EEG samples (cleaned)
+
+### Interpretation
+
+The PCA results indicate that EEG recordings do not form a single homogeneous distribution but instead consist of multiple latent structures.
+
+---
+
+## Initial Isolation Forest
+
+<img width="807" height="603" alt="image" src="https://github.com/user-attachments/assets/a2aea80a-0df5-4f83-a5f4-e9d91a14e488" />
+
+---
+
+# 5. Artifact Detection and Removal
+
+Initial Isolation Forest analysis revealed that the highest-ranked anomalies were not pathological EEG patterns but abnormal amplitude saturation signals.
+
+Typical characteristics included:
+
+* Extremely large amplitudes (tens of thousands)
+* Vertical jumps
+* Long-term saturation
+* Non-physiological abrupt signal changes
+
+<img width="570" height="433" alt="image" src="https://github.com/user-attachments/assets/16bc5863-7119-4e16-a874-18109900360c" />
+
+These patterns resembled sensor failures or recording artifacts rather than genuine EEG activity.
+
+This observation suggests that the Isolation Forest detected not only abnormal EEG signals but also data quality issues.
+
+---
+
+## Artifact Removal
+
+Artifact removal criterion:
+
+```python
+abs(signal) > 5000
 ```
 
- Key Insight:
-> **Data quality had a larger impact than model choice**
+EEG recordings satisfying this condition were removed.
 
 ---
 
-## Dimensionality Reduction (PCA)
+# 6. Reanalysis Using Cleaned Data
 
-* PCA applied after scaling and imputation
-* 2 components explained ~45–54% variance
+## Clean Feature Matrix
 
-### Insight
+```text
+Number of EEGs: 8,739
 
-EEG data does **not form discrete clusters**, but rather:
-
-> -> Continuous structure of brain activity patterns
-
----
-
-## Clustering (K-Means)
-
-* Tested k = 2 ~ 10 (Elbow method)
-* Optimal k ≈ 3
-* Silhouette Score ≈ **0.77**
-
-### Insight
-
-* Clusters formed clearly in feature space
-* But did **not perfectly align with labels**
-
--> EEG patterns are **continuous, not categorical**
+Number of Features: 180
+```
 
 ---
 
-## Anomaly Detection (Isolation Forest)
+## PCA After Cleaning
 
-* Contamination: 5%
-* Output:
+PCA was performed again after artifact removal.
 
-  * `-1`: anomaly
-  * `1`: normal
-  * continuous anomaly score
+<img width="989" height="690" alt="image" src="https://github.com/user-attachments/assets/25cb4bd1-e863-41e0-ab74-715996b28bf8" />
 
-### Key Findings
+---
 
-| Before Cleaning   | After Cleaning            |
-| ----------------- | ------------------------- |
-| Detects artifacts | Detects real EEG patterns |
-| Noisy results     | Structured anomalies      |
+## Isolation Forest After Cleaning
+
+Isolation Forest was re-applied to the cleaned feature matrix.
+
+<img width="997" height="372" alt="image" src="https://github.com/user-attachments/assets/db9bc348-26a3-4273-9dfd-d112334a0ef3" />
+
+Instead of detecting non-physiological saturated signals, the model identified EEG patterns exhibiting meaningful periodicity and amplitude variations.
+
+This demonstrates that proper data cleaning significantly improves EEG anomaly detection.
+
+---
+
+## EKG Influence Analysis
+
+During the initial analysis, the EKG channel often exhibited larger amplitudes than EEG channels.
+
+However, after artifact removal, Isolation Forest continued to identify meaningful EEG anomalies, indicating that the final anomaly detection results were not dominated by the EKG channel alone.
+
+---
+
+# 7. Quantitative Analysis of Anomalies
+
+## Anomaly vs. Normal Comparison
+
+EEG recordings were divided into **Anomaly** and **Normal** groups based on Isolation Forest predictions.
+
+<img width="877" height="545" alt="image" src="https://github.com/user-attachments/assets/8e78acd4-8bfe-4970-b94d-0e30d95eacb2" />
+
+## Key Findings
+
+Compared with normal EEGs, anomalous EEGs exhibited:
+
+* Larger signal ranges
+* Higher standard deviations
+* Higher maximum amplitudes
+
+### Interpretation
+
+Anomalous EEG recordings generally showed greater amplitudes and variability than normal EEGs.
+
+Moreover, these characteristics appeared consistently across multiple channels rather than being limited to a specific electrode.
+
+---
+
+# 8. Cluster Interpretation
+
+## Cluster Distribution
+
+| Cluster   | Count |
+| --------- | ----: |
+| Cluster 1 | 5,678 |
+| Cluster 0 | 2,523 |
+| Cluster 2 |   538 |
+
+---
+
+## Cluster Characteristics
+
+### Cluster 1
+
+* Low amplitude
+* Low variability
+* Approximately 0.6% anomaly rate
+
+### Cluster 0
+
+* Moderate amplitude
+* Moderate variability
+* Approximately 2.3% anomaly rate
+
+### Cluster 2
+
+* Very large signal range
+* Very high standard deviation
+* Approximately 64.1% anomaly rate
+
+```text
+High-Amplitude / High-Variability EEG Group
+```
+
+<img width="859" height="508" alt="image" src="https://github.com/user-attachments/assets/41d33fb7-60a0-4c4f-b091-e23d70932843" />
+
+### Interpretation
+
+Cluster 2 contained the majority of EEG recordings detected as anomalous by Isolation Forest.
+
+This suggests that specific EEG pattern groups are strongly associated with abnormal brain activity.
+
+---
+
+# 9. Validation Using Expert Labels
+
+The unsupervised learning results were validated by comparing them with expert annotations.
+
+## Anomaly Ratio by Label
+
+| Label   | Anomaly Rate |
+| ------- | -----------: |
+| Seizure |         9.9% |
+| Other   |         5.4% |
+| GPD     |         5.3% |
+| LRDA    |         3.4% |
+| GRDA    |         3.3% |
+| LPD     |         2.6% |
+
+### Interpretation
+
+Seizure EEG recordings were detected as anomalies at a considerably higher rate than other EEG categories.
+
+This indicates that Isolation Forest can identify seizure-related EEG characteristics even without supervision.
+
+---
+
+# 10. EEG Risk-Based Early Warning Framework
+
+## Risk Definition
+
+| Risk Level | Condition        |
+| ---------- | ---------------- |
+| Normal     | Score > 0.10     |
+| Warning    | 0 ≤ Score ≤ 0.10 |
+| High Risk  | Score < 0        |
 
 ---
 
 ## Results
 
-### Major Findings
-
-* EEG data exhibits **continuous latent structure**
-* Unsupervised models detect **degree of abnormality**, not strict classes
-* Artifact removal is **critical for meaningful results**
-
----
-
-## Interpretation
-
-Anomalous EEG signals showed:
-
-* Higher variance (std)
-* More extreme values (range)
-* Increased spikiness (kurtosis)
-* Non-flat dynamic patterns
+| Risk Level | Count |
+| ---------- | ----: |
+| Normal     | 7,027 |
+| Warning    | 1,275 |
+| High Risk  |   437 |
 
 ---
 
-## Key Takeaways
+## Seizure Risk Distribution
 
-> “Unsupervised learning does not classify EEG —
-> it reveals the structure of brain activity.”
+| Risk Level | Ratio |
+| ---------- | ----: |
+| High Risk  |  9.9% |
+| Warning    | 23.2% |
+| Normal     | 66.9% |
 
-* Not a classification problem
-* But a **pattern discovery problem**
+### Interpretation
 
----
+Approximately **33% of seizure EEG recordings** were classified as either **Warning** or **High Risk**.
 
-## Tech Stack
-
-* Python
-* Pandas / NumPy
-* Scikit-learn
-* Matplotlib / Seaborn
-* Joblib (parallel processing)
+This suggests that the anomaly score has potential as an early indicator of abnormal EEG activity.
 
 ---
 
-## Future Work
+# 11. Limitations
 
-* Frequency domain features (FFT)
-* Time-frequency analysis (STFT, Wavelet)
-* Deep learning comparison (CNN / Transformer)
-* Real-time EEG anomaly detection system
+Although this study successfully explored latent EEG structures and detected anomalous patterns, several limitations remain.
 
----
+## Limitations of Statistical Features
 
-## Example Visualization
+This study relied on statistical features such as mean, standard deviation, range, and skewness.
 
-* PCA projection
-* K-means clustering
-* Anomaly score heatmap
+While these features are computationally efficient and interpretable, they do not fully capture the temporal dynamics of EEG signals.
+
+Consequently, EEG recordings with similar statistical characteristics but different waveform structures may not be distinguishable.
 
 ---
 
-## Conclusion
+## Lack of Frequency-Domain Features
 
-This project demonstrates that:
+Frequency-domain information plays an essential role in EEG analysis.
 
-* EEG data is inherently continuous
-* Unsupervised learning is effective for structure discovery
-* Data preprocessing is more important than model complexity
+However, only time-domain features were used in this study, limiting the detection of abnormalities expressed through frequency characteristics.
+
+Future work will incorporate FFT-based features such as:
+
+* Delta / Theta / Alpha / Beta / Gamma Band Power
+* Relative Band Power
+* Spectral Entropy
+* Spectral Edge Frequency
+
+to enable more comprehensive EEG analysis.
+
+---
+
+# 12. Conclusion
+
+This study developed an unsupervised EEG analysis framework by transforming EEG time-series data into statistical features.
+
+During the initial anomaly analysis, recording artifacts were identified and systematically removed based on waveform inspection.
+
+Subsequent analyses on the cleaned dataset successfully revealed latent EEG structures and identified high-risk EEG groups.
+
+Furthermore, comparison with expert annotations demonstrated the interpretability of the unsupervised results, leading to the proposal of an EEG risk-based early warning framework.
+
+---
+
+# 13. Contributions
+
+This work integrates the following components into a unified EEG analysis pipeline:
+
+* Latent EEG structure discovery
+* Unsupervised anomaly detection
+* Validation using expert labels
+* EEG risk assessment
+* Early warning framework
+
+---
+
+# 14. Novelty
+
+Most existing EEG studies focus primarily on improving classification accuracy through supervised learning.
+
+In contrast, this study emphasizes discovering latent EEG structures and detecting anomalies **without relying on labels**.
+
+Furthermore, the complete pipeline—from **artifact detection** to **data cleaning**, **reanalysis**, and **risk assessment**—distinguishes this work from conventional approaches.
+
+---
+
+# 15. Future Work
+
+## Frequency-Based EEG Features
+
+Future work will extend the current time-domain features by incorporating frequency-domain information using FFT.
+
+Potential additions include:
+
+* Delta / Theta / Alpha / Beta / Gamma Band Power
+* Relative Band Power
+* Spectral Entropy
+* Spectral Edge Frequency
+
+These features are expected to provide a richer representation of EEG signals and improve latent structure analysis.
+
+---
+
+## Real-Time Early Warning System
+
+The proposed framework currently estimates EEG risk using anomaly scores computed from offline data.
+
+Future work aims to extend this framework into an **online monitoring system** capable of processing real-time EEG streams.
+
+A potential pipeline is illustrated below:
+
+```text
+EEG Input
+    ↓
+Feature Extraction
+    ↓
+Anomaly Score Estimation
+    ↓
+Risk Assessment
+    ↓
+Early Warning
+```
+
+Such a system could support continuous monitoring and early seizure warning in real-world clinical environments.
+
+---
